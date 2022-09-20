@@ -35,6 +35,14 @@ const log = (string) => {
   HISTORY_LOG.push(string);
 };
 
+const wait = (t, val) => {
+  return new Promise(function(resolve) {
+      setTimeout(function() {
+          resolve(val);
+      }, t);
+  });
+}
+
 const getToken = async () => {
   const auth = Buffer.from(`${CLIENT_ID}:${SECRET}`).toString("base64");
   const res = await fetch(`${BASE_URL}/oauth2/token`, {
@@ -132,45 +140,59 @@ const checkForGoals = async (season, game_id, homeAway, previous = 0) => {
   }
 };
 
-const wait = (t, val) => {
-  return new Promise(function(resolve) {
-      setTimeout(function() {
-          resolve(val);
-      }, t);
-  });
-}
-
-const loop = async (season, games) => {
+const getNextLiveGame = async (games) => {
   const nextGame = games?.[0];
-  if (!nextGame) {
-    return "No more games";
-  }
 
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
-
-  log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
-
   if (timeToNextGame > 0 ) {
+    log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
     await wait(timeToNextGame);
   }
 
-  log(`Game should be live now, start checking for goals...`);
-  await checkForGoals(season, nextGame?.game_id, homeOrAway(nextGame));
+  return nextGame;
+};
 
-  log("Game not live (yet or have ended) refreshing games in 15 seconds");
-  await wait(15000);
+const loop = async (season, games) => {
+  /* wait for next game start time */
+  const liveGame = await getNextLiveGame(games);
 
-  const newGames = await getGames(season);
-  await loop(season, newGames);
+  if (liveGame?.live_coverage_enabled) {
+    log(`Game should be live, start checking for goals...`);
+    /* finishes when game.live_coverage_enabled is false */
+    await checkForGoals(season, liveGame?.game_id, homeOrAway(liveGame));
+  }
+
+  /* remove game if played */
+  if (liveGame?.played) {
+    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) have ended`);
+    games = games.filter(g => g.game_id !== liveGame?.game_id);
+    if (!games.length) {
+      return "No more games";
+    }
+  } else {
+    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) is not yet live`);
+    await wait(15000);
+  }
+
+  /* restart loop with remaining games */
+  await loop(season, games);
 }
 
 const startApp = async () => {
   const season = getSeason();
   const games = await getGames(season);
-  await loop(season, games);
 
+  if (games.length) {
+    /* loop finishes when there is no more games for the season */
+    await loop(season, games);
+  }
+
+  /*
+    wait 24 hours then try to refetch games for {season},
+    this should just work for next season and next.. once the games becomes available
+  */
   log(`No more games for season: ${season}, refetching games in 24 hours...`);
-  await wait(24 * 60 * 60 * 1000)
+  await wait(24 * 60 * 60 * 1000);
   await startApp();
 };
 
