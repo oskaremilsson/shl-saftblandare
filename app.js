@@ -127,12 +127,16 @@ const handleNewGoal = async () => {
 const checkForGoals = async (season, game_id, homeAway, previous = 0) => {
   const game = await callApi(`/seasons/${season}/games/${game_id}.json`);
   console.log(game);
-  if (game?.live_coverage_enabled) {
+  if (game?.live?.status_string === "Slut") {
+    return "Ended";
+  }
+
+  if (game?.live?.game_id) {
     const score = game.live[`${homeAway}_score`];
 
     if (score > previous) {
       log(`New goal (${score} > ${previous}) found`);
-      await handleNewGoal();
+      handleNewGoal();
     }
 
     await wait(10000);
@@ -156,14 +160,12 @@ const loop = async (season, games) => {
   /* wait for next game start time */
   const liveGame = await getNextLiveGame(games);
 
-  if (liveGame?.live_coverage_enabled) {
-    log(`Game should be live, start checking for goals...`);
-    /* finishes when game.live_coverage_enabled is false */
-    await checkForGoals(season, liveGame?.game_id, homeOrAway(liveGame));
-  }
+  log(`Game should be live, start checking for goals...`);
+  /* finishes when game.live is {} or live.status_string is "Slut" */
+  const gameStatus = await checkForGoals(season, liveGame?.game_id, homeOrAway(liveGame));
 
-  /* remove game if played */
-  if (liveGame?.played) {
+  /* remove game if played or checkForGoals returned game ended */
+  if (liveGame?.played || gameStatus === "Ended") {
     log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) have ended`);
     games = games.filter(g => g.game_id !== liveGame?.game_id);
     if (!games.length) {
