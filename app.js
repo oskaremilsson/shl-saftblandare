@@ -150,7 +150,7 @@ const getNextLiveGame = async (games) => {
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
   if (timeToNextGame > 0 ) {
     log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
-    //await wait(timeToNextGame);
+    await wait(timeToNextGame);
   }
 
   return nextGame;
