@@ -61,7 +61,7 @@ const getToken = async () => {
   return token;
 }
 
-const callApi = async (path, query, retry = false) => {
+const callApi = async (path, query, retry = 0) => {
   const token = localStorage.getItem("access_token") || await getToken();
   const queryString = query ? `?${new URLSearchParams(query)}` : "";
 
@@ -71,10 +71,13 @@ const callApi = async (path, query, retry = false) => {
     }
   });
 
-  if (res?.status !== 200 && !retry) {
-    await getToken();
+  if (res?.status !== 200 && retry < 3) {
     log("Failed to call api, refreshing token and retrying..");
-    return await callApi(path, query, true);
+    await getToken();
+    await wait(1000);
+  
+    retry += 1;
+    return await callApi(path, query, retry);
   }
 
   return await res?.json();
@@ -111,13 +114,15 @@ const logError = (err) => {
 };
 
 const handleNewGoal = async () => {
+  /* TODO: change to the real exec */
   log(`Start the light!`);
   exec('ls ./', (err, _output) => {
     logError(err);
   });
 
-  await wait(1000);
+  await wait(15000);
 
+  /* TODO: change to the real exec */
   log("Turn off the light");
   exec('ls ./', (err, _output) => {
     logError(err);
@@ -150,7 +155,7 @@ const getNextLiveGame = async (games) => {
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
   if (timeToNextGame > 0 ) {
     log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
-    await wait(timeToNextGame);
+    //await wait(timeToNextGame);
   }
 
   return nextGame;
@@ -185,7 +190,7 @@ const startApp = async () => {
   const season = getSeason();
   const games = await getGames(season);
 
-  if (games.length) {
+  if (games?.length) {
     /* loop finishes when there is no more games for the season */
     await loop(season, games);
   }
