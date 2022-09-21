@@ -55,10 +55,21 @@ const getToken = async () => {
       Authorization: `Basic ${auth}`,
     }
   });
-  const json = await res?.json();
-  const token = json?.access_token;
+  const data = await res?.json();
+  const token = data?.access_token;
   localStorage.setItem("access_token", token);
+
+  handleTokenAutoRefresh(data);
+
   return token;
+}
+
+const handleTokenAutoRefresh = async (data) => {
+  /* refresh token whith 5 minutes left */
+  const refreshIn = (data?.expires_in || 3600) - 300;
+  setTimeout(async () => {
+    await getToken();
+  }, refreshIn * 1000);
 }
 
 const callApi = async (path, query, retry = 0) => {
@@ -72,7 +83,7 @@ const callApi = async (path, query, retry = 0) => {
   });
 
   if (res?.status !== 200 && retry < 3) {
-    log("Failed to call api, refreshing token and retrying..");
+    log(`Failed to call api with status: ${res?.status}. Refreshing token and retrying..`);
     await getToken();
     await wait(1000);
 
@@ -161,7 +172,7 @@ const getNextLiveGame = async (games) => {
   return nextGame;
 };
 
-const loop = async (season, games) => {
+const seasonLoop = async (season, games) => {
   /* wait for next game start time */
   const liveGame = await getNextLiveGame(games);
 
@@ -169,15 +180,17 @@ const loop = async (season, games) => {
   /* finishes when game.live is {} or game.live.status_string is "Slut" */
   const gameStatus = await checkForGoals(liveGame);
 
-  /* refetch games when game ended, there might be new games (playoffs) or changes to schedule */
   if (gameStatus === "Ended" || liveGame?.played) {
     log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) have ended`);
+
+    /* refetch games when game ended, there might be new games (playoffs) or changes to schedule */
     games = await getGames(season);
+
     if (!games.length) {
       return "No more games";
     }
   } else {
-    /* game should be live but isn't wait 15 seconds and recheck */
+    /* game should be live but isn't, wait and recheck */
     log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) is not yet live`);
     await wait(15000);
   }
@@ -186,13 +199,13 @@ const loop = async (season, games) => {
   await loop(season, games);
 }
 
-const startApp = async () => {
+const mainLoop = async () => {
   const season = getSeason();
   const games = await getGames(season);
 
   if (games?.length) {
     /* loop finishes when there is no more games for the season */
-    await loop(season, games);
+    await seasonLoop(season, games);
   }
 
   /*
@@ -201,7 +214,7 @@ const startApp = async () => {
   */
   log(`No more games for season: ${season}, refetching games in 24 hours...`);
   await wait(24 * 60 * 60 * 1000);
-  await startApp();
+  await mainLoop();
 };
 
 const server = http.createServer(async (_req, res) => {
@@ -214,5 +227,5 @@ const server = http.createServer(async (_req, res) => {
 server.listen(PORT, IP, async () => {
   console.log(`Server running at http://${IP}:${PORT}`);
   localStorage.removeItem("access_token");
-  await startApp();
+  await mainLoop();
 });
