@@ -75,7 +75,7 @@ const callApi = async (path, query, retry = 0) => {
     log("Failed to call api, refreshing token and retrying..");
     await getToken();
     await wait(1000);
-  
+
     retry += 1;
     return await callApi(path, query, retry);
   }
@@ -155,7 +155,7 @@ const getNextLiveGame = async (games) => {
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
   if (timeToNextGame > 0 ) {
     log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
-    //await wait(timeToNextGame);
+    await wait(timeToNextGame);
   }
 
   return nextGame;
@@ -165,14 +165,14 @@ const loop = async (season, games) => {
   /* wait for next game start time */
   const liveGame = await getNextLiveGame(games);
 
-  log(`Game should be live now, checking...`);
+  log(`Game should be live now, start checking...`);
   /* finishes when game.live is {} or game.live.status_string is "Slut" */
   const gameStatus = await checkForGoals(liveGame);
 
-  /* remove game if played or checkForGoals returned game ended */
-  if (liveGame?.played || gameStatus === "Ended") {
+  /* refetch games when game ended, there might be new games (playoffs) or changes to schedule */
+  if (gameStatus === "Ended" || liveGame?.played) {
     log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) have ended`);
-    games = games.filter(g => g.game_id !== liveGame?.game_id);
+    games = await getGames(season);
     if (!games.length) {
       return "No more games";
     }
