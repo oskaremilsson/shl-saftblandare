@@ -98,7 +98,7 @@ const getGames = async (season) => {
   return games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
 };
 
-const homeOrAway = (game) => {
+const getHomeOrAway = (game) => {
   const key = Object.keys(game).find(k => game[k] === TARGET_TEAM);
   return key?.split("_")?.[0];
 };
@@ -124,15 +124,15 @@ const handleNewGoal = async () => {
   });
 }
 
-const checkForGoals = async (season, game_id, homeAway, previous = 0) => {
-  const game = await callApi(`/seasons/${season}/games/${game_id}.json`);
-  console.log(game);
-  if (game?.live?.status_string === "Slut") {
+const checkForGoals = async (game, previous = 0) => {
+  const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`);
+  console.log(gameReport);
+  if (gameReport?.live?.status_string === "Slut") {
     return "Ended";
   }
 
-  if (game?.live?.game_id) {
-    const score = game.live[`${homeAway}_score`];
+  if (!!Object.keys(gameReport?.live).length) {
+    const score = gameReport?.live[`${getHomeOrAway(gameReport)}_score`];
 
     if (score > previous) {
       log(`New goal (${score} > ${previous}) found`);
@@ -140,7 +140,7 @@ const checkForGoals = async (season, game_id, homeAway, previous = 0) => {
     }
 
     await wait(10000);
-    await checkForGoals(season, game_id, homeAway, score);
+    await checkForGoals(game, score);
   }
 };
 
@@ -150,7 +150,7 @@ const getNextLiveGame = async (games) => {
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
   if (timeToNextGame > 0 ) {
     log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
-    await wait(timeToNextGame);
+    //await wait(timeToNextGame);
   }
 
   return nextGame;
@@ -160,9 +160,9 @@ const loop = async (season, games) => {
   /* wait for next game start time */
   const liveGame = await getNextLiveGame(games);
 
-  log(`Game should be live, start checking for goals...`);
-  /* finishes when game.live is {} or live.status_string is "Slut" */
-  const gameStatus = await checkForGoals(season, liveGame?.game_id, homeOrAway(liveGame));
+  log(`Game should be live now, checking...`);
+  /* finishes when game.live is {} or game.live.status_string is "Slut" */
+  const gameStatus = await checkForGoals(liveGame);
 
   /* remove game if played or checkForGoals returned game ended */
   if (liveGame?.played || gameStatus === "Ended") {
@@ -172,6 +172,7 @@ const loop = async (season, games) => {
       return "No more games";
     }
   } else {
+    /* game should be live but isn't wait 15 seconds and recheck */
     log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) is not yet live`);
     await wait(15000);
   }
