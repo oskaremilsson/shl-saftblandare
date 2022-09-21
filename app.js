@@ -13,9 +13,9 @@ const BASE_URL = process.env.OPENAPI_SHL_BASE_URL;
 const CLIENT_ID = process.env.OPENAPI_SHL_CLIENT_ID;
 const SECRET = process.env.OPENAPI_SHL_SECRET;
 const TARGET_TEAM = process.env.TARGET_TEAM;
+const PORT = process.env.PORT || 1337;
 
 const IP = os.networkInterfaces()?.en0?.[1]?.address;
-const PORT = 1337;
 
 const HISTORY_LOG = [];
 
