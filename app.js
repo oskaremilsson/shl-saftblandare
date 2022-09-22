@@ -36,6 +36,11 @@ const log = (string) => {
   HISTORY_LOG.push(string);
 };
 
+const countApiCall = () => {
+  const count = Number(localStorage.getItem("api_call_count") || 0);
+  localStorage.setItem("api_call_count", count + 1);
+}
+
 const wait = (t, val) => {
   return new Promise(function(resolve) {
       setTimeout(function() {
@@ -74,6 +79,8 @@ const handleTokenAutoRefresh = async (data) => {
 }
 
 const callApi = async (path, query, retry = 0) => {
+  countApiCall();
+
   const token = localStorage.getItem("access_token") || await getToken();
   const queryString = query ? `?${new URLSearchParams(query)}` : "";
 
@@ -171,11 +178,17 @@ const checkForGoals = async (game, previousScore = 0, previousGameTime = "00:00"
 
 const getNextLiveGame = async (games) => {
   const nextGame = games?.[0];
-
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
-  if (timeToNextGame > 0 ) {
+
+  if (timeToNextGame > 2147483646) {
+    /* failsafe if next game is more than 24 days away */
+    log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
+    await wait(2147483646);
+  } else if (timeToNextGame > 0) {
     log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
     await wait(timeToNextGame);
+  } else {
+    log(`Start time for ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time} has already passed`);
   }
 
   return nextGame;
@@ -190,7 +203,9 @@ const seasonLoop = async (season, games) => {
   const gameStatus = await checkForGoals(liveGame);
 
   if (gameStatus === "Ended" || liveGame?.played) {
-    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) have ended`);
+    const apiCallCount = localStorage.getItem("api_call_count");
+    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) have ended. ${apiCallCount} calls made.`);
+    localStorage.setItem("api_call_count", 0);
 
     /* refetch games when game ended, there might be new games (playoffs) or changes to schedule */
     games = await getGames(season);
