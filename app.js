@@ -152,7 +152,11 @@ const checkForGoals = async (game, previousScore = 0, previousGameTime = "00:00"
   const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`);
   console.log(gameReport);
   const live = gameReport?.live;
-  if (live?.status_string === "Slut") {
+  if (!live) {
+    return "Not live yet";
+  }
+
+  if (live?.status_string === "Slut" || gameReport?.played) {
     return "Ended";
   }
 
@@ -197,9 +201,12 @@ const getNextLiveGame = async (games) => {
 const seasonLoop = async (season, games) => {
   /* wait for next game start time */
   const liveGame = await getNextLiveGame(games);
-
   log(`Game should be live now, start checking...`);
-  /* finishes when game.live is {} or game.live.status_string is "Slut" */
+
+  /*
+    finishes when game.live is {} or game.live.status_string is "Slut"
+    or when game is not yet live
+  */
   const gameStatus = await checkForGoals(liveGame);
 
   if (gameStatus === "Ended" || liveGame?.played) {
@@ -220,7 +227,7 @@ const seasonLoop = async (season, games) => {
   }
 
   /* restart loop with remaining games */
-  await loop(season, games);
+  await seasonLoop(season, games);
 }
 
 const mainLoop = async () => {
@@ -245,11 +252,14 @@ const server = http.createServer(async (_req, res) => {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/plain');
 
-  res.end(`Running for ${TARGET_TEAM}\n${HISTORY_LOG.join("\n")}`);
+  const apiCounter = localStorage.getItem("api_call_count");
+
+  res.end(`Running for ${TARGET_TEAM}\n${apiCounter} calls made\n${HISTORY_LOG.join("\n")}`);
 });
 
 server.listen(PORT, IP, async () => {
   console.log(`Server running at http://${IP}:${PORT}`);
   localStorage.removeItem("access_token");
+  localStorage.setItem("api_call_count", 0);
   await mainLoop();
 });
