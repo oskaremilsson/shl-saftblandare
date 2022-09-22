@@ -31,6 +31,7 @@ const handleHistoryLog = () => {
 const log = (string) => {
   handleHistoryLog();
 
+  string = `${new Date().toJSON()}: ${string}`;
   console.log(string);
   HISTORY_LOG.push(string);
 };
@@ -140,23 +141,31 @@ const handleNewGoal = async () => {
   });
 }
 
-const checkForGoals = async (game, previous = 0) => {
+const checkForGoals = async (game, previousScore = 0, previousGameTime = "00:00") => {
   const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`);
   console.log(gameReport);
-  if (gameReport?.live?.status_string === "Slut") {
+  const live = gameReport?.live;
+  if (live?.status_string === "Slut") {
     return "Ended";
   }
 
-  if (!!Object.keys(gameReport?.live).length) {
-    const score = gameReport?.live[`${getHomeOrAway(gameReport)}_score`];
+  if (!!Object.keys(live).length) {
+    const score = live?.[`${getHomeOrAway(game)}_score`];
 
-    if (score > previous) {
-      log(`New goal (${score} > ${previous}) found`);
+    if (score > previousScore) {
+      log(`New goal (${score} > ${previousScore}) found`);
       handleNewGoal();
     }
 
-    await wait(10000);
-    await checkForGoals(game, score);
+    if (live?.gametime === "20:00" && previousGameTime !== "20:00") {
+      log(`Period ${live?.period} ended. Wait 16 minutes`);
+      await wait(960000);
+      log(`Next period is about to start. Checking for goals again...`);
+    } else {
+      await wait(10000);
+    }
+
+    await checkForGoals(game, score, live?.gametime);
   }
 };
 
