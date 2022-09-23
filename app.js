@@ -36,11 +36,6 @@ const log = (string) => {
   HISTORY_LOG.push(string);
 };
 
-const countApiCall = () => {
-  const count = Number(localStorage.getItem("api_call_count") || 0);
-  localStorage.setItem("api_call_count", count + 1);
-}
-
 const wait = (t, val) => {
   return new Promise(function(resolve) {
       setTimeout(function() {
@@ -79,8 +74,6 @@ const handleTokenAutoRefresh = async (data) => {
 }
 
 const callApi = async (path, query, retry = 0) => {
-  countApiCall();
-
   const token = localStorage.getItem("access_token") || await getToken();
   const queryString = query ? `?${new URLSearchParams(query)}` : "";
 
@@ -146,47 +139,42 @@ const handleNewGoal = async () => {
   exec('ls ./', (err, _output) => {
     logError(err);
   });
-}
+};
 
-const checkForGoals = async (game, previousScore = 0, previousGameTime = "00:00") => {
-  const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`);
-  console.log(gameReport);
-  const live = gameReport?.live;
-  if (!live) {
-    return "Not live yet";
-  }
-
-  if (live?.status_string === "Slut" || gameReport?.played) {
-    return "Ended";
-  }
-
-  if (!!Object.keys(live).length) {
-    const score = live?.[`${getHomeOrAway(game)}_score`];
-
-    if (score > previousScore) {
-      log(`New goal (${score} > ${previousScore}) found`);
-      handleNewGoal();
-    }
-
-    if (live?.gametime === "20:00" && previousGameTime !== "20:00") {
-      log(`Period ${live?.period} ended. Wait 16 minutes`);
-      await wait(960000);
-      log(`Next period is about to start. Checking for goals again...`);
-    } else {
-      await wait(10000);
-    }
-
-    await checkForGoals(game, score, live?.gametime);
+const handleWaitTime = async (live, previousGameTime) => {
+  /* pause for 16 minutes after period 1 and 2 finishes */ 
+  if (live?.period < 3 && live?.gametime === "20:00" && previousGameTime !== "20:00") {
+    log(`Period ${live?.period} ended. Wait 16 minutes`);
+    await wait(960000);
+    log(`Next period is about to start. Checking for goals again...`);
+  } else {
+    await wait(10000);
   }
 };
 
-const getNextLiveGame = async (games) => {
+const checkForNewGoals = (live, previousScore) => {
+  const score = live?.[`${getHomeOrAway(live)}_score`];
+
+  if (score > previousScore) {
+    log(`New goal (${score} > ${previousScore}) found`);
+    handleNewGoal();
+  }
+
+  return score;
+};
+
+const isLive = (live) => {
+  return !live ? false : !!Object.keys(live).length;
+};
+
+/* return next game when it schedule to start */
+const getNextGameWhenLive = async (games) => {
   const nextGame = games?.[0];
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
 
   if (timeToNextGame > 2147483646) {
     /* failsafe if next game is more than 24 days away */
-    log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
+    log(`Waiting max time for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
     await wait(2147483646);
   } else if (timeToNextGame > 0) {
     log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
@@ -198,36 +186,46 @@ const getNextLiveGame = async (games) => {
   return nextGame;
 };
 
+/*
+  loops until game.live is {} or game.live.status_string is "Slut"
+  or returns if game is not yet live
+*/
+const gameLoop = async (game, previousScore = 0, previousGameTime = "00:00") => {
+  const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`);
+  console.log(gameReport);
+  const live = gameReport?.live;
+
+  if (gameReport?.played || live?.status_string === "Slut") {
+    return "Ended";
+  }
+
+  if (isLive(live)) {
+    const score = checkForNewGoals(live, previousScore);
+    await handleWaitTime(live, previousGameTime);
+    await gameLoop(game, score, live?.gametime);
+  }
+};
+
+/* loops until there is no more games for the team dring the set season */
 const seasonLoop = async (season, games) => {
-  /* wait for next game start time */
-  const liveGame = await getNextLiveGame(games);
+  const liveGame = await getNextGameWhenLive(games);
   log(`Game should be live now, start checking...`);
+  const gameStatus = await gameLoop(liveGame);
 
-  /*
-    finishes when game.live is {} or game.live.status_string is "Slut"
-    or when game is not yet live
-  */
-  const gameStatus = await checkForGoals(liveGame);
-
-  if (gameStatus === "Ended" || liveGame?.played) {
-    const apiCallCount = localStorage.getItem("api_call_count");
-    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) have ended. ${apiCallCount} calls made.`);
-    localStorage.setItem("api_call_count", 0);
-
-    /* refetch games when game ended, there might be new games (playoffs) or changes to schedule */
+  if (gameStatus === "Ended") {
+    /* refetch games, there might be new games (playoffs) or changes to schedule */
     games = await getGames(season);
-
-    if (!games.length) {
-      return "No more games";
-    }
   } else {
     /* game should be live but isn't, wait and recheck */
     log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) is not yet live`);
     await wait(15000);
   }
 
-  /* restart loop with remaining games */
-  await seasonLoop(season, games);
+  if (!games.length) {
+    return "No more games";
+  } else {
+    await seasonLoop(season, games);
+  }
 }
 
 const mainLoop = async () => {
@@ -252,14 +250,11 @@ const server = http.createServer(async (_req, res) => {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/plain');
 
-  const apiCounter = localStorage.getItem("api_call_count");
-
-  res.end(`Running for ${TARGET_TEAM}\n${apiCounter} calls made\n${HISTORY_LOG.join("\n")}`);
+  res.end(`Running for ${TARGET_TEAM}\n${HISTORY_LOG.join("\n")}`);
 });
 
 server.listen(PORT, IP, async () => {
   console.log(`Server running at http://${IP}:${PORT}`);
   localStorage.removeItem("access_token");
-  localStorage.setItem("api_call_count", 0);
   await mainLoop();
 });
