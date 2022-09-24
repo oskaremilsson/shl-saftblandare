@@ -127,9 +127,9 @@ const logError = (err) => {
   }
 };
 
-const activeLight = async (time) => {
+const activeLight = async (time, reason) => {
   /* TODO: change to the real exec */
-  log(`Start the light!`);
+  log(`Start the light! ${reason}`);
   exec('ls ./', (err, _output) => {
     logError(err);
   });
@@ -158,8 +158,8 @@ const checkForNewGoals = (live, previousScore) => {
   const score = live?.[`${getHomeOrAway(live)}_score`];
 
   if (score > previousScore) {
-    log(`New goal (${score} > ${previousScore}) found`);
-    activeLight(15000);
+    //log(`New goal (${score} > ${previousScore}) found`);
+    activeLight(15000, "New goal!");
   }
 
   return score;
@@ -236,7 +236,7 @@ const mainLoop = async () => {
   const games = await getGames(season);
 
   if (games?.length) {
-    activeLight(1000);
+    activeLight(1000, "Feedback that season games is fetched");
     await seasonLoop(season, games);
   }
 
