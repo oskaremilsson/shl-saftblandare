@@ -14,6 +14,7 @@ const CLIENT_ID = process.env.OPENAPI_SHL_CLIENT_ID;
 const SECRET = process.env.OPENAPI_SHL_SECRET;
 const TARGET_TEAM = process.env.TARGET_TEAM;
 const PORT = process.env.PORT || 1337;
+const LOCALE = process.env.LOCALE || "sv-se";
 
 const IP = os.networkInterfaces()?.en0?.[1]?.address;
 
@@ -31,7 +32,7 @@ const handleHistoryLog = () => {
 const log = (string) => {
   handleHistoryLog();
 
-  string = `${new Date().toJSON()}: ${string}`;
+  string = `${new Date().toLocaleString(LOCALE)}: ${string}`;
   console.log(string);
   HISTORY_LOG.push(string);
 };
@@ -100,15 +101,16 @@ const getSeason = () => {
   const year = now.getFullYear();
   const month = now.getMonth();
   if (month < 6) {
-    return year -1;
+    /* in january 2023 they're still playing season 2022 */
+    return year - 1;
   }
 
   return year;
 }
 
 const getGames = async (season) => {
-  const games = await callApi(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM });
-  log(`Fetched games for season: ${season} and team: ${TARGET_TEAM}`);
+  const games = await callApi(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
+  log(`Fetched ${games?.length} games for season: ${season} and team: ${TARGET_TEAM}`);
 
   return games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
 };
@@ -125,14 +127,14 @@ const logError = (err) => {
   }
 };
 
-const handleNewGoal = async () => {
+const activeLight = async (time) => {
   /* TODO: change to the real exec */
   log(`Start the light!`);
   exec('ls ./', (err, _output) => {
     logError(err);
   });
 
-  await wait(15000);
+  await wait(time);
 
   /* TODO: change to the real exec */
   log("Turn off the light");
@@ -157,7 +159,7 @@ const checkForNewGoals = (live, previousScore) => {
 
   if (score > previousScore) {
     log(`New goal (${score} > ${previousScore}) found`);
-    handleNewGoal();
+    activeLight(15000);
   }
 
   return score;
@@ -171,16 +173,17 @@ const isLive = (live) => {
 const getNextGameWhenLive = async (games) => {
   const nextGame = games?.[0];
   const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
+  const startTime = new Date(nextGame?.start_date_time).toLocaleString(LOCALE);
 
   if (timeToNextGame > 2147483646) {
-    /* failsafe if next game is more than 24 days away */
-    log(`Waiting max time for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
+    /* failsafe for max of int if next game is more than 24 days away */
+    log(`Waiting max time for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${startTime}`);
     await wait(2147483646);
   } else if (timeToNextGame > 0) {
-    log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time}`);
+    log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${startTime}`);
     await wait(timeToNextGame);
   } else {
-    log(`Start time for ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${nextGame?.start_date_time} has already passed`);
+    log(`Start time for ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${startTime} has already passed`);
   }
 
   return nextGame;
@@ -233,19 +236,20 @@ const mainLoop = async () => {
   const games = await getGames(season);
 
   if (games?.length) {
-    /* loop finishes when there is no more games for the season */
+    activeLight(1000);
     await seasonLoop(season, games);
   }
 
   /*
-    wait 24 hours then try to refetch games for {season},
-    this should just work for next season and next.. once the games becomes available
+    wait 24 hours then try to refetch games for relevant season based on current date,
+    once the games becomes available for new season it will start a new seasonLoop.
   */
   log(`No more games for season: ${season}, refetching games in 24 hours...`);
   await wait(24 * 60 * 60 * 1000);
   await mainLoop();
 };
 
+/* For debug purposes, open up a web server that show the last 200 history logs */
 const server = http.createServer(async (_req, res) => {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/plain');
