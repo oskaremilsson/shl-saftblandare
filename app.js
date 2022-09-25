@@ -9,14 +9,17 @@ import { exec } from 'child_process';
 
 const localStorage = new LocalStorage('./storage'); 
 
+const HOSTNAME = process.env.HOSTNAME || os.networkInterfaces()?.en0?.[1]?.address;
+const PORT = process.env.PORT || 1337;
+
 const BASE_URL = process.env.OPENAPI_SHL_BASE_URL;
 const CLIENT_ID = process.env.OPENAPI_SHL_CLIENT_ID;
 const SECRET = process.env.OPENAPI_SHL_SECRET;
 const TARGET_TEAM = process.env.TARGET_TEAM;
-const PORT = process.env.PORT || 1337;
 const LOCALE = process.env.LOCALE || "sv-se";
-
-const IP = os.networkInterfaces()?.en0?.[1]?.address;
+const GOAL_ON_CMD = process.env.GOAL_ON_CMD;
+const GOAL_OFF_CMD = process.env.GOAL_OFF_CMD;
+const EXEC_CMD = process.env.EXEC_CMD === "true" || false;
 
 const HISTORY_LOG = [];
 
@@ -110,9 +113,10 @@ const getSeason = () => {
 
 const getGames = async (season) => {
   const games = await callApi(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
-  log(`Fetched ${games?.length} games for season: ${season} and team: ${TARGET_TEAM}`);
+  const unplayedGames = games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
 
-  return games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
+  log(`${unplayedGames?.length} games remaining for season: ${season} and team: ${TARGET_TEAM}`);
+  return unplayedGames;
 };
 
 const getHomeOrAway = (game) => {
@@ -128,19 +132,21 @@ const logError = (err) => {
 };
 
 const activeLight = async (time, reason) => {
-  /* TODO: change to the real exec */
   log(`Start the light! ${reason}`);
-  exec('ls ./', (err, _output) => {
-    logError(err);
-  });
+  if (EXEC_CMD) {
+    exec(GOAL_ON_CMD, (err, _output) => {
+      logError(err);
+    });
+  }
 
   await wait(time);
 
-  /* TODO: change to the real exec */
   log("Turn off the light");
-  exec('ls ./', (err, _output) => {
-    logError(err);
-  });
+  if (EXEC_CMD) {
+    exec(GOAL_OFF_CMD, (err, _output) => {
+      logError(err);
+    });
+  }
 };
 
 const handleWaitTime = async (live, previousGameTime) => {
@@ -190,16 +196,17 @@ const getNextGameWhenLive = async (games) => {
 };
 
 /*
-  loops until game.live is {} or game.live.status_string is "Slut"
-  or returns if game is not yet live
+  loops until game.live is {} or game.live.status_string includes "slut"
+  or returns if game is not yet live (or played:true as a fallsafe)
 */
 const gameLoop = async (game, previousScore = 0, previousGameTime = "00:00") => {
   const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`);
   console.log(gameReport);
   const live = gameReport?.live;
 
-  if (gameReport?.played || live?.status_string === "Slut") {
-    return "Ended";
+  if (gameReport?.played || live?.status_string?.toLowerCase()?.includes("slut")) {
+    log(`Game ended: ${TARGET_TEAM} made ${previousScore} goals.`);
+    return "game_ended";
   }
 
   if (isLive(live)) {
@@ -215,8 +222,9 @@ const seasonLoop = async (season, games) => {
   log(`Game should be live now, start checking...`);
   const gameStatus = await gameLoop(liveGame);
 
-  if (gameStatus === "Ended") {
-    /* refetch games, there might be new games (playoffs) or changes to schedule */
+  if (gameStatus === "game_ended") {
+    /* wait 15 minutes then refetch games, there might be new games (playoffs) or changes to schedule */
+    await wait(900000);
     games = await getGames(season);
   } else {
     /* game should be live but isn't, wait and recheck */
@@ -257,8 +265,8 @@ const server = http.createServer(async (_req, res) => {
   res.end(`Running for ${TARGET_TEAM}\n${HISTORY_LOG.join("\n")}`);
 });
 
-server.listen(PORT, IP, async () => {
-  console.log(`Server running at http://${IP}:${PORT}`);
+server.listen(PORT, HOSTNAME, async () => {
+  console.log(`Server running at http://${HOSTNAME}:${PORT}`);
   localStorage.removeItem("access_token");
   await mainLoop();
 });
