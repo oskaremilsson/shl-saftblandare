@@ -200,7 +200,7 @@ const getNextGameWhenLive = async (games) => {
   or returns if game is not yet live (or played:true as a fallsafe)
 */
 const gameLoop = async (game, previousScore = 0, previousGameTime = "00:00") => {
-  const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`);
+  const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
   console.log(gameReport);
   const live = gameReport?.live;
 
