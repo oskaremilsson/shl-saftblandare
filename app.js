@@ -1,20 +1,19 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
+import { LocalStorage } from "node-localstorage";
+const localStorage = new LocalStorage('./storage');
+
 import os from "os";
 import http from 'http';
-import { LocalStorage } from "node-localstorage";
-import fetch from 'node-fetch';
 import { exec } from 'child_process';
 
-const localStorage = new LocalStorage('./storage'); 
+import { Shl } from "./api.js";
+import { wait, logger, getCurrentSeason, isLive, getHomeOrAway, } from "./utils.js";
 
 const HOSTNAME = process.env.HOSTNAME || os.networkInterfaces()?.en0?.[1]?.address;
 const PORT = process.env.PORT || 1337;
 
-const BASE_URL = process.env.OPENAPI_SHL_BASE_URL;
-const CLIENT_ID = process.env.OPENAPI_SHL_CLIENT_ID;
-const SECRET = process.env.OPENAPI_SHL_SECRET;
 const TARGET_TEAM = process.env.TARGET_TEAM;
 const LOCALE = process.env.LOCALE || "sv-se";
 const GOAL_ON_CMD = process.env.GOAL_ON_CMD;
@@ -23,130 +22,26 @@ const EXEC_CMD = process.env.EXEC_CMD === "true" || false;
 
 const HISTORY_LOG = [];
 
-const handleHistoryLog = () => {
-  /* keep the memory usage down */
-  if (HISTORY_LOG.length > 200) {
-    while (HISTORY_LOG.length) {
-      HISTORY_LOG.pop();
-    }
-  }
-};
-
-const log = (string) => {
-  handleHistoryLog();
-
-  string = `${new Date().toLocaleString(LOCALE)}: ${string}`;
-  console.log(string);
-  HISTORY_LOG.push(string);
-};
-
-const wait = (t, val) => {
-  return new Promise(function(resolve) {
-      setTimeout(function() {
-          resolve(val);
-      }, t);
-  });
-}
-
-const getToken = async () => {
-  const auth = Buffer.from(`${CLIENT_ID}:${SECRET}`).toString("base64");
-  const res = await fetch(`${BASE_URL}/oauth2/token`, {
-    method: "POST",
-    body: new URLSearchParams({
-      grant_type: "client_credentials"
-    }),
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${auth}`,
-    }
-  });
-  const data = await res?.json();
-  const token = data?.access_token;
-  localStorage.setItem("access_token", token);
-
-  handleTokenAutoRefresh(data);
-
-  return token;
-}
-
-const handleTokenAutoRefresh = async (data) => {
-  /* refresh token whith 5 minutes left */
-  const refreshIn = (data?.expires_in || 3600) - 300;
-  setTimeout(async () => {
-    await getToken();
-  }, refreshIn * 1000);
-}
-
-const callApi = async (path, query, retry = 0) => {
-  const token = localStorage.getItem("access_token") || await getToken();
-  const queryString = query ? `?${new URLSearchParams(query)}` : "";
-
-  const res = await fetch(`${BASE_URL}${path}${queryString}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    }
-  });
-
-  if (res?.status !== 200 && retry < 3) {
-    log(`Failed to call api with status: ${res?.status}. Refreshing token and retrying..`);
-    await getToken();
-    await wait(1000);
-
-    retry += 1;
-    return await callApi(path, query, retry);
-  }
-
-  return await res?.json();
-}
-
-const getSeason = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  if (month < 6) {
-    /* in january 2023 they're still playing season 2022 */
-    return year - 1;
-  }
-
-  return year;
-}
+const log = (string) => logger(string, HISTORY_LOG, LOCALE);
 
 const getGames = async (season) => {
-  const games = await callApi(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
+  const games = await Shl.call(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
   const unplayedGames = games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
 
-  log(`${unplayedGames?.length} games remaining for season: ${season} and team: ${TARGET_TEAM}`);
+  log(`${unplayedGames?.length} games remaining for ${TARGET_TEAM} in season ${season}`);
   return unplayedGames;
-};
-
-const getHomeOrAway = (game) => {
-  const key = Object.keys(game).find(k => game[k] === TARGET_TEAM);
-  return key?.split("_")?.[0];
-};
-
-const logError = (err) => {
-  if (err) {
-    HISTORY_LOG.push("Could not not exec");
-    console.error("Could not execute command: ", err);
-  }
 };
 
 const activeLight = async (time, reason) => {
   log(`Start the light! ${reason}`);
-  if (EXEC_CMD) {
-    exec(GOAL_ON_CMD, (err, _output) => {
-      logError(err);
-    });
-  }
 
-  await wait(time);
+  if (EXEC_CMD) {
+    exec(GOAL_ON_CMD);
+    await wait(time);
+    exec(GOAL_OFF_CMD);
+  }
 
   log("Turn off the light");
-  if (EXEC_CMD) {
-    exec(GOAL_OFF_CMD, (err, _output) => {
-      logError(err);
-    });
-  }
 };
 
 const handleWaitTime = async (live, previousGameTime) => {
@@ -161,18 +56,13 @@ const handleWaitTime = async (live, previousGameTime) => {
 };
 
 const checkForNewGoals = (live, previousScore) => {
-  const score = live?.[`${getHomeOrAway(live)}_score`];
+  const score = live?.[`${getHomeOrAway(live, TARGET_TEAM)}_score`];
 
   if (score > previousScore) {
-    //log(`New goal (${score} > ${previousScore}) found`);
     activeLight(15000, "New goal!");
   }
 
   return score;
-};
-
-const isLive = (live) => {
-  return !live ? false : !!Object.keys(live).length;
 };
 
 /* return next game when it schedule to start */
@@ -200,7 +90,7 @@ const getNextGameWhenLive = async (games) => {
   or returns if game is not yet live (or played:true as a fallsafe)
 */
 const gameLoop = async (game, previousScore = 0, previousGameTime = "00:00") => {
-  const gameReport = await callApi(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
+  const gameReport = await Shl.call(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
   console.log(gameReport);
   const live = gameReport?.live;
 
@@ -240,7 +130,7 @@ const seasonLoop = async (season, games) => {
 }
 
 const mainLoop = async () => {
-  const season = getSeason();
+  const season = getCurrentSeason();
   const games = await getGames(season);
 
   if (games?.length) {
