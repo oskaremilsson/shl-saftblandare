@@ -3,7 +3,7 @@ import RPi.GPIO as GPIO
 
 def button_callback(channel):
   print("Button was pushed!")
-  os.system("uhubctl -l 1-1 -p 2 -a toggle")
+  os.system("uhubctl -l 1-1 -p 2 -a toggle >/dev/null")
 
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BOARD)
