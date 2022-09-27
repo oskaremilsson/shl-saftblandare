@@ -44,17 +44,6 @@ const activeLight = async (time, reason) => {
   log("Turn off the light");
 };
 
-const handleWaitTime = async (live, previousGameTime) => {
-  /* pause for 16 minutes after period 1 and 2 finishes */ 
-  //if (live?.period < 3 && live?.gametime === "20:00" && previousGameTime !== "20:00") {
-    //log(`Period ${live?.period} ended. Wait 16 minutes`);
-    //await wait(960000);
-    //log(`Next period is about to start. Checking for goals again...`);
-  //} else {
-    await wait(10000);
-  //}
-};
-
 const checkForNewGoals = (live, previousScore) => {
   const score = live?.[`${getHomeOrAway(live, TARGET_TEAM)}_score`];
 
@@ -94,14 +83,14 @@ const gameLoop = async (game, previousScore = 0, previousGameTime = "00:00") => 
   console.log(gameReport);
   const live = gameReport?.live;
 
-  if (gameReport?.played || live?.status_string?.toLowerCase()?.includes("slut")) {
+  if (gameReport?.played) {
     log(`Game ended: ${TARGET_TEAM} made ${previousScore} goals.`);
     return "game_ended";
   }
 
   if (isLive(live)) {
     const score = checkForNewGoals(live, previousScore);
-    await handleWaitTime(live, previousGameTime);
+    await wait(10000);
     await gameLoop(game, score, live?.gametime);
   }
 };
@@ -113,8 +102,6 @@ const seasonLoop = async (season, games) => {
   const gameStatus = await gameLoop(liveGame);
 
   if (gameStatus === "game_ended") {
-    /* wait 15 minutes then refetch games, there might be new games (playoffs) or changes to schedule */
-    await wait(900000);
     games = await getGames(season);
   } else {
     /* game should be live but isn't, wait and recheck */
