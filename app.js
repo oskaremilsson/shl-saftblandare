@@ -78,7 +78,7 @@ const getNextGameWhenLive = async (games) => {
   loops until game.live is {} or game.live.status_string includes "slut"
   or returns if game is not yet live (or played:true as a fallsafe)
 */
-const gameLoop = async (game, previousScore = 0, previousGameTime = "00:00") => {
+const gameLoop = async (game, previousScore = 0) => {
   const gameReport = await Shl.call(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
   console.log(gameReport);
   const live = gameReport?.live;
@@ -91,7 +91,7 @@ const gameLoop = async (game, previousScore = 0, previousGameTime = "00:00") => 
   if (isLive(live)) {
     const score = checkForNewGoals(live, previousScore);
     await wait(10000);
-    await gameLoop(game, score, live?.gametime);
+    await gameLoop(game, score);
   }
 };
 
