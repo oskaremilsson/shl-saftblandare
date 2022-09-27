@@ -46,13 +46,13 @@ const activeLight = async (time, reason) => {
 
 const handleWaitTime = async (live, previousGameTime) => {
   /* pause for 16 minutes after period 1 and 2 finishes */ 
-  if (live?.period < 3 && live?.gametime === "20:00" && previousGameTime !== "20:00") {
-    log(`Period ${live?.period} ended. Wait 16 minutes`);
-    await wait(960000);
-    log(`Next period is about to start. Checking for goals again...`);
-  } else {
+  //if (live?.period < 3 && live?.gametime === "20:00" && previousGameTime !== "20:00") {
+    //log(`Period ${live?.period} ended. Wait 16 minutes`);
+    //await wait(960000);
+    //log(`Next period is about to start. Checking for goals again...`);
+  //} else {
     await wait(10000);
-  }
+  //}
 };
 
 const checkForNewGoals = (live, previousScore) => {
