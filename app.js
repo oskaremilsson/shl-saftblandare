@@ -75,8 +75,7 @@ const getNextGameWhenLive = async (games) => {
 };
 
 /*
-  loops until game.live is {} or game.live.status_string includes "slut"
-  or returns if game is not yet live (or played:true as a fallsafe)
+  loops until game.live is {} (not live) or game.played is true (ended)
 */
 const gameLoop = async (game, previousScore = 0) => {
   const gameReport = await Shl.call(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
@@ -91,7 +90,7 @@ const gameLoop = async (game, previousScore = 0) => {
   if (isLive(live)) {
     const score = checkForNewGoals(live, previousScore);
     await wait(10000);
-    await gameLoop(game, score);
+    return await gameLoop(game, score);
   }
 };
 
@@ -102,10 +101,12 @@ const seasonLoop = async (season, games) => {
   const gameStatus = await gameLoop(liveGame);
 
   if (gameStatus === "game_ended") {
+    log(`Fetching new games in 10 minutes.`);
+    await wait(900000);
     games = await getGames(season);
   } else {
     /* game should be live but isn't, wait and recheck */
-    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) is not yet live`);
+    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) is not yet live.`);
     await wait(15000);
   }
 
@@ -121,7 +122,7 @@ const mainLoop = async () => {
   const games = await getGames(season);
 
   if (games?.length) {
-    activeLight(1000, "Feedback that season games is fetched");
+    activeLight(1000, "App is ready");
     await seasonLoop(season, games);
   }
 
