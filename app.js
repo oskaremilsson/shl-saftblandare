@@ -27,6 +27,7 @@ const log = (string) => logger(string, HISTORY_LOG, LOCALE);
 const getGames = async (season) => {
   const games = await Shl.call(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
   const unplayedGames = games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
+  //const unplayedGames = games?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
 
   log(`${unplayedGames?.length} games remaining for ${TARGET_TEAM} in season ${season}`);
   return unplayedGames;
@@ -83,7 +84,7 @@ const gameLoop = async (game, previousScore = 0) => {
   const live = gameReport?.live;
 
   if (gameReport?.played) {
-    log(`Game ended: ${TARGET_TEAM} made ${previousScore} goals.`);
+    log(`Game ended. Found ${previousScore} goals for ${TARGET_TEAM}.`);
     return "game_ended";
   }
 
@@ -91,6 +92,19 @@ const gameLoop = async (game, previousScore = 0) => {
     const score = checkForNewGoals(live, previousScore);
     await wait(10000);
     return await gameLoop(game, score);
+  } else {
+    const timeSinceStartTime = new Date() - new Date(gameReport?.start_date_time);
+    /* game should be live but isn't, wait and recheck */
+    log(`Game (${gameReport?.home_team_code} - ${gameReport?.away_team_code}) is not yet live.`);
+    log(timeSinceStartTime);
+    await wait(15000);
+
+    if (timeSinceStartTime > (2 * 60 * 60 * 1000)) {
+      // it's been two hours without gamestart. return
+      return "game_not_started"
+    }
+
+    return await gameLoop(game);
   }
 };
 
@@ -101,19 +115,17 @@ const seasonLoop = async (season, games) => {
   const gameStatus = await gameLoop(liveGame);
 
   if (gameStatus === "game_ended") {
-    log(`Fetching new games in 10 minutes.`);
+    // seems like the other game endpoint played is delayed
+    log(`Waiting 10 minutes after game.`);
     await wait(900000);
-    games = await getGames(season);
-  } else {
-    /* game should be live but isn't, wait and recheck */
-    log(`Game (${liveGame?.home_team_code} - ${liveGame?.away_team_code}) is not yet live.`);
-    await wait(15000);
   }
+
+  games = await getGames(season);
 
   if (!games.length) {
     return "No more games";
   } else {
-    await seasonLoop(season, games);
+    return await seasonLoop(season, games);
   }
 }
 
@@ -132,7 +144,7 @@ const mainLoop = async () => {
   */
   log(`No more games for season: ${season}, refetching games in 24 hours...`);
   await wait(24 * 60 * 60 * 1000);
-  await mainLoop();
+  return await mainLoop();
 };
 
 /* For debug purposes, open up a web server that show the last 200 history logs */
