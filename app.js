@@ -90,7 +90,7 @@ const gameLoop = async (game, previousScore = 0) => {
 
   if (isLive(live)) {
     const score = checkForNewGoals(live, previousScore);
-    await wait(10000);
+    await wait(5000);
     return await gameLoop(game, score);
   } else {
     const timeSinceStartTime = new Date() - new Date(gameReport?.start_date_time);
