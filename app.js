@@ -13,11 +13,14 @@ import { wait, logger, getCurrentSeason, isLive, getHomeOrAway, } from "./utils.
 
 const HOSTNAME = process.env.HOSTNAME || os.networkInterfaces()?.en0?.[1]?.address;
 const PORT = process.env.PORT || 1337;
-
-const TARGET_TEAM = process.env.TARGET_TEAM;
 const LOCALE = process.env.LOCALE || "sv-se";
+
+const TARGET_TEAM = process.env.TARGET_TEAM || "LIF";
+const POLL_TIME = process.env.POLL_TIME || 10000;
+
 const GOAL_ON_CMD = process.env.GOAL_ON_CMD;
 const GOAL_OFF_CMD = process.env.GOAL_OFF_CMD;
+const GOAL_TIME = process.env.GOAL_TIME;
 const EXEC_CMD = process.env.EXEC_CMD === "true" || false;
 
 const HISTORY_LOG = [];
@@ -49,7 +52,7 @@ const checkForNewGoals = (live, previousScore) => {
   const score = live?.[`${getHomeOrAway(live, TARGET_TEAM)}_score`];
 
   if (score > previousScore) {
-    activeLight(15000, "New goal!");
+    activeLight(GOAL_TIME, "New goal!");
   }
 
   return score;
@@ -90,7 +93,7 @@ const gameLoop = async (game, previousScore = 0) => {
 
   if (isLive(live)) {
     const score = checkForNewGoals(live, previousScore);
-    await wait(5000);
+    await wait(POLL_TIME);
     return await gameLoop(game, score);
   } else {
     const timeSinceStartTime = new Date() - new Date(gameReport?.start_date_time);
