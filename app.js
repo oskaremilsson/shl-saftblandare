@@ -30,7 +30,6 @@ const log = (string) => logger(string, HISTORY_LOG, LOCALE);
 const getGames = async (season) => {
   const games = await Shl.call(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
   const unplayedGames = games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
-  //const unplayedGames = games?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
 
   log(`${unplayedGames?.length} games remaining for ${TARGET_TEAM} in season ${season}`);
   return unplayedGames;
