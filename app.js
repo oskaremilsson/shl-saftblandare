@@ -154,7 +154,7 @@ const server = http.createServer(async (_req, res) => {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/plain');
 
-  res.end(`Running for ${TARGET_TEAM}\n${HISTORY_LOG.join("\n")}`);
+  res.end(`Running for ${TARGET_TEAM}\nLast call: ${localStorage.getItem("last_call")}\n${HISTORY_LOG.join("\n")}`);
 });
 
 server.listen(PORT, HOSTNAME, async () => {

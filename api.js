@@ -9,6 +9,7 @@ import { wait } from "./utils.js";
 
 const SECRET = process.env.OPENAPI_SHL_SECRET;
 const CLIENT_ID = process.env.OPENAPI_SHL_CLIENT_ID;
+const LOCALE = process.env.LOCALE || "sv-se";
 
 class Api {
   constructor() {
@@ -61,6 +62,7 @@ class Api {
     const queryString = query ? `?${new URLSearchParams(query)}` : "";
   
     try {
+      localStorage.setItem("last_call", `${new Date().toLocaleString(LOCALE)}`);
       const res = await fetch(`${this.baseUrl}${path}${queryString}`, {
         headers: {
           Authorization: `Bearer ${token}`,
