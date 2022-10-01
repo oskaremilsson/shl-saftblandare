@@ -82,7 +82,6 @@ const getNextGameWhenLive = async (games) => {
 */
 const gameLoop = async (game, previousScore = 0) => {
   const gameReport = await Shl.call(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
-  console.log(gameReport);
   const live = gameReport?.live;
 
   if (gameReport?.played) {
@@ -97,13 +96,11 @@ const gameLoop = async (game, previousScore = 0) => {
   } else {
     const timeSinceStartTime = new Date() - new Date(gameReport?.start_date_time);
     /* game should be live but isn't, wait and recheck */
-    log(`Game (${gameReport?.home_team_code} - ${gameReport?.away_team_code}) is not yet live.`);
-    log(timeSinceStartTime);
     await wait(15000);
 
     if (timeSinceStartTime > (2 * 60 * 60 * 1000)) {
-      // it's been two hours without gamestart. return
-      return "game_not_started"
+      // it's been two hours without gamestart. give up
+      return "game_not_started";
     }
 
     return await gameLoop(game);
@@ -113,12 +110,12 @@ const gameLoop = async (game, previousScore = 0) => {
 /* loops until there is no more games for the team dring the set season */
 const seasonLoop = async (season, games) => {
   const liveGame = await getNextGameWhenLive(games);
-  log(`Game should be live now, start checking...`);
+  log(`Game should be live now, start checking for goals...`);
   const gameStatus = await gameLoop(liveGame);
 
   if (gameStatus === "game_ended") {
     // seems like the other game endpoint played is delayed
-    log(`Waiting 10 minutes after game.`);
+    log(`Waiting 15 minutes after game.`);
     await wait(900000);
   }
 

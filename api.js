@@ -19,7 +19,6 @@ class Api {
 
   async getToken() {
     try {
-      console.log("Refreshing token");
       const auth = Buffer.from(`${CLIENT_ID}:${SECRET}`).toString("base64");
       const res = await fetch(`${this.baseUrl}/oauth2/token`, {
         method: "POST",
@@ -52,7 +51,6 @@ class Api {
     /* refresh token whith 5 minutes left */
     const refreshIn = (data?.expires_in || 301) - 300;
     this.autoRefreshTimer = setTimeout(async () => {
-      console.log("auto refresh");
       await this.getToken();
     }, refreshIn * 1000);
   }
