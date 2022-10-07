@@ -9,7 +9,7 @@ import http from 'http';
 import { exec } from 'child_process';
 
 import { Shl } from "./api.js";
-import { wait, logger, getCurrentSeason, isLive, getHomeOrAway, } from "./utils.js";
+import { wait, logger, getCurrentSeason, isLive, isGamePaused, getHomeOrAway, } from "./utils.js";
 
 const HOSTNAME = process.env.HOSTNAME || os.networkInterfaces()?.en0?.[1]?.address;
 const PORT = process.env.PORT || 1337;
@@ -23,9 +23,7 @@ const GOAL_OFF_CMD = process.env.GOAL_OFF_CMD;
 const GOAL_TIME = process.env.GOAL_TIME;
 const EXEC_CMD = process.env.EXEC_CMD === "true" || false;
 
-const HISTORY_LOG = [];
-
-const log = (string) => logger(string, HISTORY_LOG, LOCALE);
+const log = (string) => logger(string, LOCALE);
 
 const getGames = async (season) => {
   const games = await Shl.call(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
@@ -57,6 +55,15 @@ const checkForNewGoals = (live, previousScore) => {
   return score;
 };
 
+const waitTime = async (live, previousStatus) => {
+  if (isGamePaused(live?.status_string, previousStatus)) {
+    log(`Waiting 15 minutes: ${live?.status_string}`);
+    return await wait(900000);
+  } else {
+    return await wait(POLL_TIME);
+  }
+}
+
 /* return next game when it schedule to start */
 const getNextGameWhenLive = async (games) => {
   const nextGame = games?.[0];
@@ -80,7 +87,7 @@ const getNextGameWhenLive = async (games) => {
 /*
   loops until game.live is {} (not live) or game.played is true (ended)
 */
-const gameLoop = async (game, previousScore = 0) => {
+const gameLoop = async (game, previousScore = 0, previousStatus = "") => {
   const gameReport = await Shl.call(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
   const live = gameReport?.live;
 
@@ -91,8 +98,10 @@ const gameLoop = async (game, previousScore = 0) => {
 
   if (isLive(live)) {
     const score = checkForNewGoals(live, previousScore);
-    await wait(POLL_TIME);
-    return await gameLoop(game, score);
+
+    await waitTime(live, previousStatus);
+
+    return await gameLoop(game, score, live?.status_string);
   } else {
     const timeSinceStartTime = new Date() - new Date(gameReport?.start_date_time);
     /* game should be live but isn't, wait and recheck */
@@ -151,11 +160,14 @@ const server = http.createServer(async (_req, res) => {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/plain');
 
-  res.end(`Running for ${TARGET_TEAM}\nLast call: ${localStorage.getItem("last_call")}\n${HISTORY_LOG.join("\n")}`);
+  const historyLog = JSON.parse(localStorage.getItem("history_log")) || [];
+
+  res.end(`Running for ${TARGET_TEAM}\nLast call: ${localStorage.getItem("last_call")}\n${historyLog.join("\n")}`);
 });
 
 server.listen(PORT, HOSTNAME, async () => {
   console.log(`Server running at http://${HOSTNAME}:${PORT}`);
   localStorage.removeItem("access_token");
+  log("Restarting app...\n");
   await mainLoop();
 });
