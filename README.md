@@ -36,7 +36,10 @@ The starting point of the app.
   - return `game_ended`.
 * if `live`:
   - check for new scores from `TARGET_TEAM`
-  - wait `POLL_TIME`
+  - if period 1 or 2 ended:
+    - wait `15 minutes`
+  - if not:
+    - wait `POLL_TIME`
   - restart `gameLoop`
 * if not `live`:
   - wait `15 seconds`.
