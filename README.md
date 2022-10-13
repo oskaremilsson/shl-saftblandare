@@ -1,7 +1,9 @@
-# shl-saftblandare
-This is the code part of a birthday present I made for my brother in law.
+![shl-saftblandare](https://user-images.githubusercontent.com/8742118/195601990-fa4bd7c3-f78f-4857-b90e-4b68d7a3e46a.gif)
 
-It checks for when `TARGET_TEAM` scores in SHL, and when they do, exec given command by `GOAL_ON_CMD`, then `GOAL_OFF_CMD`. In our case - urn USB on/off to turn a blue rotating light on/off.
+# shl-saftblandare
+This is the code part of a birthday present which purpose is to be a live score updater for a specific team (LIF in this case).
+
+It checks for when `TARGET_TEAM` scores in SHL, and when they do, exec given command by `GOAL_ON_CMD`, then `GOAL_OFF_CMD`. In this case - turn USB on/off which make the blue rotating light be on/off.
 
 ## How?
 * A node app is using [SHL Open API](http://doc.openapi.shl.se/) to check for live goals.
@@ -47,5 +49,3 @@ The starting point of the app.
     - return `game_not_started`. 
   - if not
     - restart `gameLoop`.
-
-![image](https://user-images.githubusercontent.com/8742118/194004197-7bd68654-c7f7-4ea3-a19a-a93c5c03e02c.png)
