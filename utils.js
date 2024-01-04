@@ -35,6 +35,11 @@ export const getHomeOrAway = (game, team) => {
   return key?.split("_")?.[0];
 };
 
+export const getAOrB = (game, team) => {
+  const key = Object.keys(game).find(k => game[k] === team);
+  return key?.charAt(key.length - 1);
+};
+
 export const logger = (string, locale) => {
   string = `${new Date().toLocaleString(locale)}: ${string}`;
   console.log(string);
@@ -50,3 +55,16 @@ export const logger = (string, locale) => {
   historyLog.push(string);
   localStorage.setItem("history_log", JSON.stringify(historyLog));
 };
+
+export const getMsTimeUntilNextDay = () => {
+  // Get the current date and time
+  const currentDate = new Date();
+
+  // Set the time to mid day for the next day
+  const nextDay = new Date(currentDate);
+  nextDay.setDate(currentDate.getDate() + 1);
+  nextDay.setHours(12, 0, 0, 0);
+
+  // Return the difference in milliseconds
+  return nextDay - currentDate;
+}
