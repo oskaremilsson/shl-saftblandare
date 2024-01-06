@@ -8,14 +8,15 @@ import os from "os";
 import http from 'http';
 import { exec } from 'child_process';
 
-import { Shl } from "./api.js";
-import { wait, logger, getCurrentSeason, isLive, isGamePaused, getHomeOrAway, } from "./utils.js";
+import { wait, getMsTimeUntilNextDay, logger, getAOrB, } from "./utils.js";
 
 const HOSTNAME = process.env.HOSTNAME || os.networkInterfaces()?.en0?.[1]?.address;
 const PORT = process.env.PORT || 1337;
 const LOCALE = process.env.LOCALE || "sv-se";
 
-const TARGET_TEAM = process.env.TARGET_TEAM || "LIF";
+const SPARTFANE_TARGET_TEAM = process.env.SPARTFANE_TARGET_TEAM || "Leksand";
+const SPARTFANE_URL = process.env.SPARTFANE_URL || "https://www.sportfane.se/Com.svc/Main?v=1_01";
+const SPARTFANE_TARGET_LEAGUE = process.env.SPARTFANE_TARGET_LEAGUE || "Ishockey SHL";
 const POLL_TIME = process.env.POLL_TIME || 10000;
 
 const GOAL_ON_CMD = process.env.GOAL_ON_CMD;
@@ -25,12 +26,17 @@ const EXEC_CMD = process.env.EXEC_CMD === "true" || false;
 
 const log = (string) => logger(string, LOCALE);
 
-const getGames = async (season) => {
-  const games = await Shl.call(`/seasons/${season}/games.json`, { "teamIds[]": TARGET_TEAM }) || [];
-  const unplayedGames = games?.filter(g => !g.played)?.sort((a, b) => Date.parse(a.start_date_time) - Date.parse(b.start_date_time));
+const fetchInterestedGame = async () => {
+  localStorage.setItem("last_call", `${new Date().toLocaleString(LOCALE)}`);
+  const res = await fetch(SPARTFANE_URL);
+  const data = await res?.json();
+  const game = data?.games?.filter(g => g?.league === SPARTFANE_TARGET_LEAGUE);
+  return game?.filter(g => [g?.teamA, g?.teamB].includes(SPARTFANE_TARGET_TEAM))?.[0];
+}
 
-  log(`${unplayedGames?.length} games remaining for ${TARGET_TEAM} in season ${season}`);
-  return unplayedGames;
+const getTodaysGame = async () => {
+  const interestedGame = fetchInterestedGame();
+  return interestedGame?.finished ? null : interestedGame;
 };
 
 const activeLight = async (time, reason) => {
@@ -45,8 +51,8 @@ const activeLight = async (time, reason) => {
   log("Turn off the light");
 };
 
-const checkForNewGoals = (live, previousScore) => {
-  const score = live?.[`${getHomeOrAway(live, TARGET_TEAM)}_score`];
+const checkForNewGoals = (gameReport, previousScore) => {
+  const score = gameReport?.[`score${getAOrB(gameReport, SPARTFANE_TARGET_TEAM)}`];
 
   if (score > previousScore) {
     activeLight(GOAL_TIME, "New goal!");
@@ -55,103 +61,72 @@ const checkForNewGoals = (live, previousScore) => {
   return score;
 };
 
-const waitTime = async (live, previousStatus) => {
-  if (isGamePaused(live?.status_string, previousStatus)) {
-    log(`Waiting 15 minutes: ${live?.status_string}`);
-    return await wait(900000);
-  } else {
-    return await wait(POLL_TIME);
-  }
-}
-
-/* return next game when it schedule to start */
-const getNextGameWhenLive = async (games) => {
-  const nextGame = games?.[0];
-  const timeToNextGame = new Date(nextGame?.start_date_time) - new Date();
-  const startTime = new Date(nextGame?.start_date_time).toLocaleString(LOCALE);
-
-  if (timeToNextGame > 2147483646) {
-    /* failsafe for max of int if next game is more than 24 days away */
-    log(`Waiting max time for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${startTime}`);
-    await wait(2147483646);
-  } else if (timeToNextGame > 0) {
-    log(`Waiting for next game: ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${startTime}`);
-    await wait(timeToNextGame);
-  } else {
-    log(`Start time for ${nextGame?.home_team_code} - ${nextGame?.away_team_code} at ${startTime} has already passed`);
-  }
-
-  return nextGame;
-};
-
 /*
-  loops until game.live is {} (not live) or game.played is true (ended)
+  loops until game.finished is true (ended)
 */
-const gameLoop = async (game, previousScore = 0, previousStatus = "") => {
-  const gameReport = await Shl.call(`/seasons/${game?.season}/games/${game?.game_id}.json`) || {};
-  const live = gameReport?.live;
+const gameLoop = async (previousScore = 0) => {
+  const gameReport = await fetchInterestedGame();
+  const live = gameReport?.started;
 
-  if (gameReport?.played) {
-    log(`Game ended. Found ${previousScore} goals for ${TARGET_TEAM}.`);
+  if (gameReport?.finished) {
+    log(`Game ended. Found ${previousScore} goals for ${SPARTFANE_TARGET_TEAM}. But it ended with ${gameReport?.[`score${getAOrB(gameReport, SPARTFANE_TARGET_TEAM)}`]} for ${SPARTFANE_TARGET_TEAM}`);
     return "game_ended";
   }
 
-  if (isLive(live)) {
-    const score = checkForNewGoals(live, previousScore);
+  if (live) {
+    const score = checkForNewGoals(gameReport, previousScore);
 
-    await waitTime(live, previousStatus);
+    await wait(POLL_TIME);
 
-    return await gameLoop(game, score, live?.status_string);
+    return await gameLoop(score);
   } else {
-    const timeSinceStartTime = new Date() - new Date(gameReport?.start_date_time);
+    const matchDate = new Date();
+    const hour = gameReport?.time_matchstart?.split(":")?.[0];
+    const minute = gameReport?.time_matchstart?.split(":")?.[1];
+    matchDate?.setHours(Number(hour), Number(minute), 0, 0);
+
+    const timeSinceStartTime = new Date() - matchDate;
+    log(`Game not started yet, retry in 30 seconds`);
     /* game should be live but isn't, wait and recheck */
-    await wait(15000);
+    await wait(30000);
 
     if (timeSinceStartTime > (2 * 60 * 60 * 1000)) {
       // it's been two hours without gamestart. give up
       return "game_not_started";
     }
 
-    return await gameLoop(game);
+    return await gameLoop();
   }
 };
 
-/* loops until there is no more games for the team dring the set season */
-const seasonLoop = async (season, games) => {
-  const liveGame = await getNextGameWhenLive(games);
-  log(`Game should be live now, start checking for goals...`);
-  const gameStatus = await gameLoop(liveGame);
-
-  if (gameStatus === "game_ended") {
-    // seems like the other game endpoint played is delayed
-    log(`Waiting 15 minutes after game.`);
-    await wait(900000);
-  }
-
-  games = await getGames(season);
-
-  if (!games.length) {
-    return "No more games";
-  } else {
-    return await seasonLoop(season, games);
-  }
-}
-
 const mainLoop = async () => {
-  const season = getCurrentSeason();
-  const games = await getGames(season);
+  const game = await getTodaysGame();
 
-  if (games?.length) {
-    activeLight(1000, "App is ready");
-    await seasonLoop(season, games);
+  if (game) {
+    log(`It's game day!`);
+
+    const matchStartTime = game?.time_matchstart?.split(":");
+    const matchDate = new Date();
+    matchDate?.setHours(Number(matchStartTime?.[0]), Number(matchStartTime?.[1]), 0, 0);
+
+    const now = new Date().getTime();
+    const matchStart = matchDate?.getTime();
+    if (matchStart > now) {
+      log(`waiting for game to start at ${matchDate?.toLocaleString(LOCALE)}`);
+      await wait(matchStart - now);
+    } else {
+      log(`Game start time have passed, checking for goals`);
+    }
+
+    await gameLoop();
   }
 
   /*
-    wait 24 hours then try to refetch games for relevant season based on current date,
-    once the games becomes available for new season it will start a new seasonLoop.
+    not game day today, check tomorrow at noon.
   */
-  log(`No more games for season: ${season}, refetching games in 24 hours...`);
-  await wait(24 * 60 * 60 * 1000);
+  const date = new Date((new Date).getTime() + getMsTimeUntilNextDay());
+  log(`No new game today, refetching games tomorrow, ${date.toLocaleString(LOCALE)}`);
+  await wait(getMsTimeUntilNextDay());
   return await mainLoop();
 };
 
@@ -162,7 +137,7 @@ const server = http.createServer(async (_req, res) => {
 
   const historyLog = JSON.parse(localStorage.getItem("history_log")) || [];
 
-  res.end(`Running for ${TARGET_TEAM}\nLast call: ${localStorage.getItem("last_call")}\n${historyLog.join("\n")}`);
+  res.end(`Running for ${SPARTFANE_TARGET_TEAM}\nLast call: ${localStorage.getItem("last_call")}\n${historyLog.join("\n")}`);
 });
 
 server.listen(PORT, HOSTNAME, async () => {

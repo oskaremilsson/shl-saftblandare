@@ -1,3 +1,4 @@
 .env
+.env_bak
 /storage
 /node_modules
