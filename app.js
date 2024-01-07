@@ -28,10 +28,15 @@ const log = (string) => logger(string, LOCALE);
 
 const fetchInterestedGame = async () => {
   localStorage.setItem("last_call", `${new Date().toLocaleString(LOCALE)}`);
-  const res = await fetch(SPARTFANE_URL);
-  const data = await res?.json();
-  const game = data?.games?.filter(g => g?.league === SPARTFANE_TARGET_LEAGUE);
-  return game?.filter(g => [g?.teamA, g?.teamB].includes(SPARTFANE_TARGET_TEAM))?.[0];
+  try {
+    const res = await fetch(SPARTFANE_URL);
+    const data = await res?.json();
+    const game = data?.games?.filter(g => g?.league === SPARTFANE_TARGET_LEAGUE);
+    return game?.filter(g => [g?.teamA, g?.teamB].includes(SPARTFANE_TARGET_TEAM))?.[0];
+  } catch {
+    log(`Failed to fetch from ${SPARTFANE_URL}`);
+    return null;
+  }
 }
 
 const getTodaysGame = async () => {
