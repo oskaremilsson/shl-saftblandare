@@ -149,5 +149,6 @@ server.listen(PORT, HOSTNAME, async () => {
   console.log(`Server running at http://${HOSTNAME}:${PORT}`);
   localStorage.removeItem("access_token");
   log("Restarting app...\n");
+  activeLight(2000, "App starting");
   await mainLoop();
 });
